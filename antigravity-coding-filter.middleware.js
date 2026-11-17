@@ -1,5 +1,20 @@
 // Antigravity coding filter — magpie gateway middleware.
 //
+// Local copy, changed for Antigravity Bridge. Based on
+// NKBaa/magpie-antigravity-coding-filter a0acaac (MIT, Copyright (c) 2026
+// NKBaa), itself a port of jellyfish-p/cpa-plugin-antigravity-coding-filter
+// (MIT, Copyright (c) 2026 jellyfish); see LICENSE. The changes are marked
+// "Local change" below:
+//   1. providers: also acts on a plugin's provider by its id, default
+//      "antigravity-bridge". magpie gives every plugin provider the account
+//      kind "plugin", so `accounts` alone never matched the bridge.
+//   2. On the bridge, the two Claude identity sentences its prompt-guard.mjs
+//      replaces only when they are exactly as written are left to it.
+//   3. Responses `input` as a string is the user's turn and is left alone.
+//   4. Five coding-CLI names added to the preset (Cursor Agent, Kimi CLI, …).
+//   5. report also logs its outcome (names and counts, no prompt text) to
+//      magpie's log, since magpie never reads ctx.state back.
+//
 // Port of jellyfish-p/cpa-plugin-antigravity-coding-filter (CLIProxyAPI v7
 // plugin, MIT) to magpie's gateway middleware API. It does what that plugin
 // does: on the request a try sends to an Antigravity account, it looks at the
@@ -130,6 +145,15 @@ export const defaultMappings = [
   ["Chatbox AI", "Antigravity"],
   ["Chatbox", "Antigravity"],
   ["Kelivo", "Antigravity"],
+
+  // Local change: coding CLIs that write their own name into the system
+  // prompt, missing from the preset and from Antigravity Bridge's sentences.
+  // Each is two words, so the ordinary word ("cursor") is not touched.
+  ["Cursor Agent", "Antigravity"],
+  ["Cursor CLI", "Antigravity"],
+  ["Kiro CLI", "Antigravity"],
+  ["Kimi CLI", "Antigravity"],
+  ["iFlow CLI", "Antigravity"],
 ]
 
 // modelMappings is off unless useModelKeywords is set. The preset above leaves
@@ -195,8 +219,14 @@ const STATE_KEY = "antigravity-coding-filter"
 export function onProvider(body, ctx) {
   const o = ctx && ctx.options
   if (!o || typeof o !== "object" || isOn(o.off)) return
-  const account = ctx.provider && ctx.provider.account
-  if (!accountAllowed(o.accounts, account)) return
+  const provider = ctx.provider && typeof ctx.provider === "object" ? ctx.provider : {}
+  const account = provider.account
+  // Local change: a plugin's provider is matched by its id. magpie sets
+  // ctx.provider.account to the account's agent, and that is "plugin" for
+  // every plugin's provider (internal/provider/plugins.go), never
+  // "antigravity". bridge says this try goes to Antigravity Bridge.
+  const bridge = providerAllowed(o.providers, provider.id)
+  if (!bridge && !accountAllowed(o.accounts, account)) return
 
   const cfg = config(o)
   if (!cfg.matcher) return
@@ -206,28 +236,37 @@ export function onProvider(body, ctx) {
   walk(body, ctx.protocol, (text) => {
     const next = transform(text, cfg, (name) => {
       hits.set(name, (hits.get(name) || 0) + 1)
-    })
+    }, bridge)
     if (next !== text) mutated = true
     return cfg.dryRun ? text : next
   })
 
-  if (cfg.report) report(ctx, cfg, account, hits, mutated)
+  if (cfg.report) report(ctx, cfg, account, provider.id, hits, mutated)
   return mutated && !cfg.dryRun ? body : undefined
 }
 
 // report leaves what matched on ctx.state, under a key a gateway log or a
 // second middleware can read. The request itself is not touched.
-function report(ctx, cfg, account, hits, mutated) {
-  const state = ctx && ctx.state
-  if (!state || typeof state !== "object") return
+function report(ctx, cfg, account, providerId, hits, mutated) {
   const matches = []
   for (const [name, count] of hits) matches.push({ name, count })
-  state[STATE_KEY] = {
+  const outcome = {
     account,
+    provider: providerId,
     mode: cfg.mode,
     dryRun: cfg.dryRun,
     changed: mutated && !cfg.dryRun,
     matches,
+  }
+  const state = ctx && ctx.state
+  if (state && typeof state === "object") state[STATE_KEY] = outcome
+  // Local change: magpie never reads ctx.state back (each middleware has a
+  // runtime and a state of its own), so the outcome also goes to magpie's
+  // log as one line, "middleware <path> [info]: antigravity-coding-filter
+  // {…}", at most 60 a minute.
+  // It holds the names matched and their counts, never the prompt.
+  if (typeof console !== "undefined" && console && typeof console.log === "function") {
+    console.log(STATE_KEY + " " + JSON.stringify(outcome))
   }
 }
 
@@ -357,6 +396,19 @@ function accountAllowed(list, account) {
   return false
 }
 
+// Local change: providerAllowed compares the try's provider id with
+// `providers`, ignoring case. The default is Antigravity Bridge's id; an
+// empty list turns provider matching off, leaving `accounts` alone.
+function providerAllowed(list, id) {
+  if (typeof id !== "string" || !id) return false
+  const want = Array.isArray(list) ? list : ["antigravity-bridge"]
+  const have = id.toLowerCase()
+  for (const item of want) {
+    if (typeof item === "string" && item.trim().toLowerCase() === have) return true
+  }
+  return false
+}
+
 // parseCustom reads customMappings: an object {"Cursor": "Antigravity"}, a
 // comma- or newline-delimited "Cursor: Antigravity" string, or an array of
 // such strings. A blank entry is skipped rather than thrown, so one typo in
@@ -417,9 +469,9 @@ function buildMatcher(list, boundaries, strict) {
 
 // transform rewrites or cloaks every match that isn't inside a protected
 // technical reference, and hands each matched name to onMatch.
-function transform(text, cfg, onMatch) {
+function transform(text, cfg, onMatch, bridge) {
   const { re, byLower, grouped, strict } = cfg.matcher
-  const spans = protectedSpans(text, cfg)
+  const spans = protectedSpans(text, cfg, bridge)
   let out = ""
   let last = 0
   let at = 0
@@ -490,9 +542,26 @@ const PROTECTED = [
 
 const CODE = [/```[\s\S]*?```/g, /`[^`\n]*`/g]
 
-function protectedSpans(text, cfg) {
+// Local change: bridgeSentences are the two identity sentences Antigravity
+// Bridge's prompt-guard.mjs (ef58846) replaces with "You are an AI coding
+// assistant.", only when they are exactly as written. magpie runs onProvider
+// before the plugin's fetch, so a name cloaked in one of them made the bridge
+// miss it, and its cloak.mjs then reworded only the second half:
+//   "You are a C\u200bl\u200baude a\u200bg\u200bent, built on the Claude Agent SDK by Anthropic."
+// On a try to a provider in `providers` they are left as they are, for the
+// bridge.
+export const bridgeSentences = [
+  "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+  "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.",
+]
+const BRIDGE = bridgeSentences.map(
+  (s) => new RegExp(s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
+)
+
+function protectedSpans(text, cfg, bridge) {
   const spans = []
-  const patterns = cfg.protectCode ? PROTECTED.concat(CODE) : PROTECTED
+  let patterns = cfg.protectCode ? PROTECTED.concat(CODE) : PROTECTED
+  if (bridge) patterns = patterns.concat(BRIDGE)
   for (const re of patterns) {
     re.lastIndex = 0
     let m
@@ -540,8 +609,9 @@ function walk(body, protocol, fn) {
       roleMessages(body.messages, fn)
       break
     case "responses":
+      // Local change: `input` as a string is the user's message, not a
+      // system prompt, so it is left alone (the Go plugin leaves it too).
       if (typeof body.instructions === "string") body.instructions = fn(body.instructions)
-      if (typeof body.input === "string") body.input = fn(body.input)
       roleMessages(body.input, fn)
       roleMessages(body.messages, fn)
       break
@@ -555,7 +625,6 @@ function walk(body, protocol, fn) {
       // An unknown protocol still gets the shapes it could have come in.
       if (body.system !== undefined) body.system = content(body.system, fn)
       if (typeof body.instructions === "string") body.instructions = fn(body.instructions)
-      if (typeof body.input === "string") body.input = fn(body.input)
       roleMessages(body.messages, fn)
       roleMessages(body.input, fn)
       roleMessages(body.contents, fn)

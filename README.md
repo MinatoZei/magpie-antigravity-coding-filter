@@ -1,5 +1,71 @@
 # magpie-antigravity-coding-filter
 
+> **这是 [NKBaa/magpie-antigravity-coding-filter](https://github.com/NKBaa/magpie-antigravity-coding-filter) 的 fork，**基于 `a0acaac`（v0.5.3），版本号 `0.5.3-agybridge.1`。原作者 NKBaa（MIT）；该项目移植自 [jellyfish-p/cpa-plugin-antigravity-coding-filter](https://github.com/jellyfish-p/cpa-plugin-antigravity-coding-filter)（MIT）。
+>
+> 这个 fork 改了一件事：让插件在 [Antigravity Bridge](https://github.com/DylanLIiii/opencode-antigravity-bridge) 上真正生效。原版对 Bridge 不起作用，而且不报任何错。
+>
+> *A fork that makes the middleware actually fire for the Antigravity Bridge plugin provider. The fixes are listed below.*
+
+## 本 fork 修正了什么 / What this fork fixes
+
+| # | 原版的问题 | 修正 | 代码位置 |
+|---|---|---|---|
+| 1 | **对 Antigravity Bridge 不生效，也不报错。** 原版只看 `ctx.provider.account` 是不是 `antigravity`，而 magpie 0.1.4309 给所有插件 provider 的 account 都是 `"plugin"`，所以永远对不上 | 新增选项 `providers`，默认 `["antigravity-bridge"]`，按 provider id 匹配，不区分大小写 | `providerAllowed()`，`onProvider` |
+| 2 | **和 Bridge 自带的 prompt-guard 冲突。** 本插件先执行，会改掉 Bridge 要原样匹配的两句 Claude 身份句。Bridge 认不出来，结果变成半遮半露，例如 `You are a C​l​aude agent, built on the Claude Agent SDK by Anthropic.` | 发往 Bridge 时这两句原样保留，交给 Bridge 处理 | `bridgeSentences`，`protectedSpans()` |
+| 3 | Responses API 里字符串形式的 `input` 其实是用户这一轮的消息，原版也会改它 | 不再改它，只改系统提示词 | `input` 分支 |
+| 4 | 预设缺了几个常见的编码 CLI | 加入 `Cursor Agent`、`Cursor CLI`、`Kiro CLI`、`Kimi CLI`、`iFlow CLI`，共 53 个名称。都是两个词，`cursor` 这样的普通单词不受影响 | preset，`page/filter.js` |
+| 5 | `report` 只写进 `ctx.state`，magpie 从不读它，打开了也看不到结果 | 另外往 magpie 日志写一行，只记录命中的名字和次数，不含提示词，每分钟最多 60 行 | `report()` |
+| 6 | 默认 `mode: "cloak"`，也就是插入零宽字符。据 magpie 官方 antigravity-cloak 的说明，2026-11-14 起 Google 的检查会忽略零宽字符 | 默认改为 `rewrite`，直接替换名字 | `package.json` |
+| 7 | 新选项没有登记，manifest 测试会失败 | 测试的已知选项里加上 `providers` | `test/page-files.test.mjs` |
+
+**验证环境**：magpie 0.1.4309 + Antigravity Bridge `ef58846`，Linux，请求经 magpie 网关发出。
+
+| 测试 | 结果 |
+|---|---|
+| 发往 Antigravity 的请求 | 系统提示词里的名字被替换，日志里是 `changed:true` |
+| 同样的请求发往 Claude 订阅 | 原样不动，没有日志行 |
+| 用户消息里出现这个名字 | 不改，日志里是 `changed:false` |
+| 系统提示词里有 Bridge 那两句身份句 | 原样交给 Bridge；本插件只替换了其中的 `Claude Code` |
+
+`bun test` 跑了 unified-rules、page-files、page-smoke、features 和 middleware check，89 个全部通过。需要浏览器或 magpie 进程的测试没有跑。
+
+## 推荐设置：页面里勾哪些 / Recommended settings
+
+装好后，打开 magpie 侧边栏的 **Plugins → Antigravity 编码过滤**，在「过滤设置」里设置。也可以用命令行：`magpie plugin options <插件名> '<json>'`。
+
+**基本设置**
+
+| 选项 | 勾不勾 | 说明 |
+|---|---|---|
+| 启用过滤 | ✅ 勾 | |
+| 处理方式 | 选 **「替换名字」** | 不要选「保留原文」（零宽字符），见上面第 6 条 |
+| 常用名称（53 个） | ✅ 勾 | |
+| 同时处理模型名称 | ⬜ 不勾 | 会把 `claude-opus-5-5` 这类模型名一起改掉。名字都替换了还是 429，再试着打开 |
+
+**高级设置**
+
+| 选项 | 勾不勾 | 说明 |
+|---|---|---|
+| 只匹配完整名称 | ✅ 勾 | 避免误伤 `decline`、`Traefik` 这类普通单词 |
+| 保护代码块和行内代码 | ✅ 勾 | 代码里的字符串保持原样 |
+| 启用全部 11 个歧义词 | ⬜ 不勾 | 会误伤 cursor、goose、tabby 这类普通单词 |
+| 歧义词区分大小写 | ⬜ 不勾 | 只有打开了歧义词才有用 |
+| 仅检查，请求保持原样 | ⬜ 不勾 | 排查问题时临时勾上，要和下一项一起用 |
+| 记录命中信息到请求状态 | ⬜ 不勾 | 排查问题时勾上，magpie 日志里会出现 `antigravity-coding-filter {…}` 一行 |
+| 账号类型 | 填 `antigravity` | 保持默认 |
+
+**页面上没有 `providers` 这一项**，默认值就是 `antigravity-bridge`。如果你的 Bridge 用的是别的 provider id，用命令行改：
+
+```sh
+magpie plugin options <插件名> '{"mode":"rewrite","providers":["<你的 provider id>"],"accounts":["antigravity"]}'
+```
+
+**装在哪台 magpie 上**：装在运行 Antigravity Bridge 的那台。如果另有一台网关通过 remote-magpie 连到它，**不要装在网关上**。网关看到的 provider 是那台远程 magpie，分不清哪些请求是发往 Antigravity 的，插件不会生效。
+
+---
+
+
+
 Another coding agent's name in the system prompt is rewritten or cloaked, as [magpie](https://usemagpie.ai) gateway middleware — on the request an Antigravity account is sent, and on no other.
 
 A port of [jellyfish-p/cpa-plugin-antigravity-coding-filter](https://github.com/jellyfish-p/cpa-plugin-antigravity-coding-filter) (a CLIProxyAPI v7 dynamic plugin, MIT) to magpie's gateway middleware API. The keyword preset, the protected technical references and the rewrite semantics come from that plugin; the hook and the default action are magpie's.

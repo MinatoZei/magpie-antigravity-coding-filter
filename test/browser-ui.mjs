@@ -158,7 +158,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       expect(await evaluate(`uiErrors`)).toEqual([]);
       expect(
         await evaluate(`document.querySelectorAll('#catalog-rows tr').length`),
-      ).toBe(76);
+      ).toBe(81);
       expect(
         await evaluate(
           `document.querySelectorAll('#catalog-rows tr[data-name="Cursor"]').length`,
@@ -311,7 +311,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
       );
       expect(
         await evaluate(`document.querySelectorAll('#catalog-rows tr').length`),
-      ).toBe(77);
+      ).toBe(82);
       await search("New Agent");
       await action("New Agent", "edit");
       await setInput("editor-replacement", "Newer Value");

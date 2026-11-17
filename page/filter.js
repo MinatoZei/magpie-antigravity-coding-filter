@@ -63,6 +63,12 @@
     ["Chatbox AI", "Antigravity"],
     ["Chatbox", "Antigravity"],
     ["Kelivo", "Antigravity"],
+    // Local change: the same additions as the middleware's preset.
+    ["Cursor Agent", "Antigravity"],
+    ["Cursor CLI", "Antigravity"],
+    ["Kiro CLI", "Antigravity"],
+    ["Kimi CLI", "Antigravity"],
+    ["iFlow CLI", "Antigravity"],
   ]
 
   const modelMappings = [

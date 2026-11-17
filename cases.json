@@ -233,12 +233,11 @@
     "request": { "model": "m", "system": "You are Cursor.", "messages": [] }
   },
   {
-    "name": "Responses: input as a string",
+    "name": "Responses: input as a string is the user's turn and stays (local change)",
     "options": { "useAmbiguousKeywords": true },
     "provider": { "id": "7c1958d885953cd3", "name": "Antigravity", "account": "antigravity", "model": "gemini-3-flash" },
     "ctx": { "protocol": "responses" },
-    "request": { "model": "m", "input": "You are Cursor." },
-    "expect_request": { "model": "m", "input": "You are C\u200bu\u200brsor." }
+    "request": { "model": "m", "input": "You are Cursor." }
   },
   {
     "name": "Gemini: a system role in contents",
@@ -321,5 +320,40 @@
     "provider": { "id": "7c1958d885953cd3", "name": "Antigravity", "account": "antigravity", "model": "gemini-3-flash" },
     "request": { "model": "m", "system": "You are Kelivo, a chat client.", "messages": [] },
     "expect_request": { "model": "m", "system": "You are K\u200be\u200blivo, a chat client.", "messages": [] }
+  },
+  {
+    "name": "local change: Antigravity Bridge, a plugin's provider (account plugin), is matched by its id",
+    "provider": { "id": "antigravity-bridge", "name": "Antigravity Bridge", "account": "plugin", "model": "gemini-3.8-flash" },
+    "request": { "model": "m", "system": "You are an agent for Claude Code, Anthropic's official CLI for Claude.", "messages": [{ "role": "user", "content": "Claude Code is great" }] },
+    "expect_request": { "model": "m", "system": "You are an agent for C\u200bl\u200baude C\u200bo\u200bde, Anthropic's official CLI for Claude.", "messages": [{ "role": "user", "content": "Claude Code is great" }] }
+  },
+  {
+    "name": "local change: on the bridge, the Claude sentences its prompt-guard replaces are left to it",
+    "provider": { "id": "antigravity-bridge", "name": "Antigravity Bridge", "account": "plugin", "model": "gemini-3.8-flash" },
+    "request": { "model": "m", "system": "You are a Claude agent, built on Anthropic's Claude Agent SDK.\nYou are an agent for Claude Code.", "messages": [] },
+    "expect_request": { "model": "m", "system": "You are a Claude agent, built on Anthropic's Claude Agent SDK.\nYou are an agent for C\u200bl\u200baude C\u200bo\u200bde.", "messages": [] }
+  },
+  {
+    "name": "local change: another plugin's provider is left alone",
+    "provider": { "id": "grok", "name": "Grok", "account": "plugin", "model": "m" },
+    "request": { "model": "m", "system": "You are Windsurf.", "messages": [] }
+  },
+  {
+    "name": "local change: providers [] turns matching by provider id off",
+    "options": { "providers": [] },
+    "provider": { "id": "antigravity-bridge", "name": "Antigravity Bridge", "account": "plugin", "model": "gemini-3.8-flash" },
+    "request": { "model": "m", "system": "You are Windsurf.", "messages": [] }
+  },
+  {
+    "name": "local change: a remote magpie (a key, no account) is left alone even for the bridge's models",
+    "provider": { "id": "relay", "name": "Remote magpie", "model": "antigravity-bridge/gemini-3.8-flash" },
+    "request": { "model": "m", "system": "You are Windsurf.", "messages": [] }
+  },
+  {
+    "name": "local change: Kimi CLI is in the preset",
+    "options": { "mode": "rewrite" },
+    "provider": { "id": "antigravity-bridge", "name": "Antigravity Bridge", "account": "plugin", "model": "gemini-3.8-flash" },
+    "request": { "model": "m", "system": "You are Kimi CLI, an interactive agent.", "messages": [] },
+    "expect_request": { "model": "m", "system": "You are Antigravity, an interactive agent.", "messages": [] }
   }
 ]
