@@ -6,7 +6,8 @@
   "files": [
     "antigravity-coding-filter.middleware.js",
     "page",
-    "README.md"
+    "README.md",
+    "README.zh-CN.md"
   ],
   "keywords": [
     "magpie",
